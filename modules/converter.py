@@ -1,82 +1,50 @@
-import os
 import cv2
 import numpy as np
+import os
 import concurrent.futures
 
+folder_path = '../src/dataset/masks'
+output_folder_path = '../src/dataset/class_masks2'
 
-def mask_to_classes(mask, class_colors):
-    """
-    Преобразует маску сегментации в классовый вид по заданным цветам классов.
+count = 0
+count_img = os.listdir(folder_path)
 
-    Аргументы:
-    mask : numpy.ndarray
-        Массив с маской сегментации, размером (высота, ширина, каналы).
-    class_colors : dict
-        Словарь, в котором ключи - названия классов, а значения - цвета классов в формате RGB.
-
-    Возвращает:
-    numpy.ndarray
-        Массив с классовой разметкой, размером (высота, ширина).
-    """
-    height, width, _ = mask.shape
-    num_classes = len(class_colors)
-    class_mask = np.zeros((height, width), dtype=np.uint8)
-
-    for idx, (class_name, color) in enumerate(class_colors.items()):
-        class_mask[np.all(mask == color, axis=-1)] = idx + 1
-
-    return class_mask
+# Классы
+classes = {
+    (0, 0, 0): 0,
+    (255, 255, 255): 1,
+    (0, 0, 255): 2,
+    (255, 0, 0): 3,
+    (0, 255, 0): 4,
+}
 
 
-def process_mask(mask_path, output_dir, class_colors):
-    """
-    Обрабатывает маску сегментации, преобразуя ее в классовый вид и сохраняя результат.
-
-    Аргументы:
-    mask_path : str
-        Путь к файлу с маской сегментации.
-    output_dir : str
-        Директория для сохранения результата.
-    class_colors : dict
-        Словарь, в котором ключи - названия классов, а значения - цвета классов в формате RGB.
-    """
-    mask = cv2.imread(mask_path)
-    class_mask = mask_to_classes(mask, class_colors)
-
-    filename = os.path.basename(mask_path)
-    output_path = os.path.join(output_dir, filename)
-    cv2.imwrite(output_path, class_mask)
+# Преобразование изображения
+def convert_image(image_path):
+    image = cv2.imread(image_path)
+    output_image = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+    for i in range(image.shape[0]):
+        for j in range(image.shape[1]):
+            pixel_color = tuple(image[i, j])
+            if pixel_color in classes:
+                output_image[i, j] = classes[pixel_color]
+    return output_image
 
 
-# Задаем цвета классов
-class_colors = {
-        'background': [0, 0, 0],
-        'body': [255, 255, 255],
-        'lights': [0, 255, 0],
-        "wheels": [0, 0, 255],
-        'windows': [255, 0, 0]
-    }
+# Функция для обработки отдельного изображения
+def process_image(image_filename):
+    image_path = os.path.join(folder_path, image_filename)
+    output_path = os.path.join(output_folder_path, image_filename)
+    converted_image = convert_image(image_path)
+    cv2.imwrite(output_path, converted_image)
+    return image_filename
 
-# Директории для входных и выходных данных
-input_dir = "../src/dataset/masks"
-output_dir = "../src/dataset/class_masks"
 
-# Создаем выходную директорию, если она не существует
-if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
+if __name__ == '__main__':
+    image_files = [filename for filename in os.listdir(folder_path) if
+                   filename.endswith('.jpg') or filename.endswith('.png')]
 
-# Получаем список файлов масок сегментации
-mask_files = [os.path.join(input_dir, f) for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        results = list(executor.map(process_image, image_files))
 
-# Обрабатываем маски с использованием многопоточности
-with concurrent.futures.ThreadPoolExecutor() as executor:
-    futures = []
-    for mask_path in mask_files:
-        futures.append(executor.submit(process_mask, mask_path, output_dir, class_colors))
-
-    # Дожидаемся завершения всех задач
-    for future in concurrent.futures.as_completed(futures):
-        try:
-            future.result()
-        except Exception as e:
-            print(f"An error occurred: {e}")
+    print('Все изображения обработаны.')

@@ -1,3 +1,14 @@
+# import os
+# path = '/content/LessonTest/dataset/masks'
+# imgs = os.listdir(path)
+# for img in imgs:
+#   if(img != ".ipynb_checkpoints"):
+#       os.remove(f'{path}/{img}')
+
+"""## Подключаем необходимые модули"""
+
+# !git clone https://github.com/lyftzeigen/SemanticSegmentationLesson.git
+
 import os
 import glob
 import numpy as np
@@ -11,30 +22,32 @@ from skimage.morphology import dilation, disk
 from skimage.draw import polygon_perimeter
 
 print(f'Tensorflow version {tf.__version__}')
-print(f'GPU is {"ON" if tf.config.list_physical_devices("GPU") else "OFF" }')
+print(f'GPU is {"ON" if tf.config.list_physical_devices("GPU") else "OFF"}')
 
 """## Подготовим набор данных для обучения"""
 
-CLASSES = 8
+CLASSES = 5
 
-COLORS = ['black', 'red', 'lime',
-          'blue', 'orange', 'pink',
-          'cyan', 'magenta']
+COLORS = ['black', 'white', 'red',
+          'blue', 'green']
 
 SAMPLE_SIZE = (256, 256)
 
 OUTPUT_SIZE = (1080, 1920)
 
+
 def load_images(image, mask):
     image = tf.io.read_file(image)
     image = tf.io.decode_jpeg(image)
+    # image = image[:, :, :3]
     image = tf.image.resize(image, OUTPUT_SIZE)
     image = tf.image.convert_image_dtype(image, tf.float32)
     image = image / 255.0
 
     mask = tf.io.read_file(mask)
     mask = tf.io.decode_png(mask)
-    mask = tf.image.rgb_to_grayscale(mask)
+    # mask = mask[:, :, :3]
+    # mask = tf.image.rgb_to_grayscale(mask)
     mask = tf.image.resize(mask, OUTPUT_SIZE)
     mask = tf.image.convert_image_dtype(mask, tf.float32)
 
@@ -47,6 +60,7 @@ def load_images(image, mask):
     masks = tf.reshape(masks, OUTPUT_SIZE + (CLASSES,))
 
     return image, masks
+
 
 def augmentate_images(image, masks):
     random_crop = tf.random.uniform((), 0.3, 1)
@@ -63,8 +77,9 @@ def augmentate_images(image, masks):
 
     return image, masks
 
-images = sorted(glob.glob('SemanticSegmentationLesson/dataset/images/*.jpg'))
-masks = sorted(glob.glob('SemanticSegmentationLesson/dataset/masks/*.png'))
+
+images = sorted(glob.glob('../../src/dataset/images/*.jpg'))
+masks = sorted(glob.glob('../../src/dataset/class_masks/*.png'))
 
 images_dataset = tf.data.Dataset.from_tensor_slices(images)
 masks_dataset = tf.data.Dataset.from_tensor_slices(masks)
@@ -79,7 +94,7 @@ dataset = dataset.map(augmentate_images, num_parallel_calls=tf.data.AUTOTUNE)
 
 images_and_masks = list(dataset.take(5))
 
-fig, ax = plt.subplots(nrows = 2, ncols = 5, figsize=(16, 6))
+fig, ax = plt.subplots(nrows=2, ncols=5, figsize=(16, 6))
 
 for i, (image, masks) in enumerate(images_and_masks):
     ax[0, i].set_title('Image')
@@ -88,10 +103,10 @@ for i, (image, masks) in enumerate(images_and_masks):
 
     ax[1, i].set_title('Mask')
     ax[1, i].set_axis_off()
-    ax[1, i].imshow(image/1.5)
+    ax[1, i].imshow(image / 1.5)
 
     for channel in range(CLASSES):
-        contours = measure.find_contours(np.array(masks[:,:,channel]))
+        contours = measure.find_contours(np.array(masks[:, :, channel]))
         for contour in contours:
             ax[1, i].plot(contour[:, 1], contour[:, 0], linewidth=1, color=COLORS[channel])
 
@@ -108,8 +123,10 @@ test_dataset = test_dataset.batch(8)
 
 """## Обозначим основные блоки модели"""
 
+
 def input_layer():
     return tf.keras.layers.Input(shape=SAMPLE_SIZE + (3,))
+
 
 def downsample_block(filters, size, batch_norm=True):
     initializer = tf.keras.initializers.GlorotNormal()
@@ -117,14 +134,15 @@ def downsample_block(filters, size, batch_norm=True):
     result = tf.keras.Sequential()
 
     result.add(
-      tf.keras.layers.Conv2D(filters, size, strides=2, padding='same',
-                             kernel_initializer=initializer, use_bias=False))
+        tf.keras.layers.Conv2D(filters, size, strides=2, padding='same',
+                               kernel_initializer=initializer, use_bias=False))
 
     if batch_norm:
         result.add(tf.keras.layers.BatchNormalization())
 
     result.add(tf.keras.layers.LeakyReLU())
     return result
+
 
 def upsample_block(filters, size, dropout=False):
     initializer = tf.keras.initializers.GlorotNormal()
@@ -143,10 +161,12 @@ def upsample_block(filters, size, dropout=False):
     result.add(tf.keras.layers.ReLU())
     return result
 
+
 def output_layer(size):
     initializer = tf.keras.initializers.GlorotNormal()
     return tf.keras.layers.Conv2DTranspose(CLASSES, size, strides=2, padding='same',
                                            kernel_initializer=initializer, activation='sigmoid')
+
 
 """## Построим U-NET подобную архитектуру"""
 
@@ -196,6 +216,7 @@ tf.keras.utils.plot_model(unet_like, show_shapes=True, dpi=72)
 
 """## Определим метрики и функции потерь"""
 
+
 def dice_mc_metric(a, b):
     a = tf.unstack(a, axis=3)
     b = tf.unstack(b, axis=3)
@@ -211,11 +232,14 @@ def dice_mc_metric(a, b):
 
     return avg_dice
 
+
 def dice_mc_loss(a, b):
     return 1 - dice_mc_metric(a, b)
 
+
 def dice_bce_mc_loss(a, b):
     return 0.3 * dice_mc_loss(a, b) + tf.keras.losses.binary_crossentropy(a, b)
+
 
 """## Компилируем модель"""
 
@@ -225,53 +249,56 @@ unet_like.compile(optimizer='adam', loss=[dice_bce_mc_loss], metrics=[dice_mc_me
 
 history_dice = unet_like.fit(train_dataset, validation_data=test_dataset, epochs=25, initial_epoch=0)
 
-unet_like.save_weights('SemanticSegmentationLesson/networks/unet_like')
+unet_like.save_weights('src/networks/unet_like')
 
 """## Загружаем обученную модель"""
 
-unet_like.load_weights('SemanticSegmentationLesson/networks/unet_like')
+# from google.colab import drive
+# drive.mount('/content/drive')
+
+unet_like.load_weights('src/networks/unet_like')
 
 """## Проверим работу сети на всех кадрах из видео"""
 
-rgb_colors = [
-    (0,   0,   0),
-    (255, 0,   0),
-    (0,   255, 0),
-    (0,   0,   255),
-    (255, 165, 0),
-    (255, 192, 203),
-    (0,   255, 255),
-    (255, 0,   255)
-]
+# rgb_colors = [
+#     (0,   0,   0),
+#     (255, 0,   0),
+#     (0,   255, 0),
+#     (0,   0,   255),
+#     (255, 165, 0),
+#     (255, 192, 203),
+#     (0,   255, 255),
+#     (255, 0,   255)
+# ]
 
-frames = sorted(glob.glob('SemanticSegmentationLesson/videos/original_video/*.jpg'))
+# frames = sorted(glob.glob('LessonTest/videos/original_video/*.jpg'))
 
-for filename in frames:
-    frame = imread(filename)
-    sample = resize(frame, SAMPLE_SIZE)
+# for filename in frames:
+#     frame = imread(filename)
+#     sample = resize(frame, SAMPLE_SIZE)
 
-    predict = unet_like.predict(sample.reshape((1,) +  SAMPLE_SIZE + (3,)))
-    predict = predict.reshape(SAMPLE_SIZE + (CLASSES,))
+#     predict = unet_like.predict(sample.reshape((1,) +  SAMPLE_SIZE + (3,)))
+#     predict = predict.reshape(SAMPLE_SIZE + (CLASSES,))
 
-    scale = frame.shape[0] / SAMPLE_SIZE[0], frame.shape[1] / SAMPLE_SIZE[1]
+#     scale = frame.shape[0] / SAMPLE_SIZE[0], frame.shape[1] / SAMPLE_SIZE[1]
 
-    frame = (frame / 1.5).astype(np.uint8)
+#     frame = (frame / 1.5).astype(np.uint8)
 
-    for channel in range(1, CLASSES):
-        contour_overlay = np.zeros((frame.shape[0], frame.shape[1]))
-        contours = measure.find_contours(np.array(predict[:,:,channel]))
+#     for channel in range(1, CLASSES):
+#         contour_overlay = np.zeros((frame.shape[0], frame.shape[1]))
+#         contours = measure.find_contours(np.array(predict[:,:,channel]))
 
-        try:
-            for contour in contours:
-                rr, cc = polygon_perimeter(contour[:, 0] * scale[0],
-                                           contour[:, 1] * scale[1],
-                                           shape=contour_overlay.shape)
+#         try:
+#             for contour in contours:
+#                 rr, cc = polygon_perimeter(contour[:, 0] * scale[0],
+#                                            contour[:, 1] * scale[1],
+#                                            shape=contour_overlay.shape)
 
-                contour_overlay[rr, cc] = 1
+#                 contour_overlay[rr, cc] = 1
 
-            contour_overlay = dilation(contour_overlay, disk(1))
-            frame[contour_overlay == 1] = rgb_colors[channel]
-        except:
-            pass
+#             contour_overlay = dilation(contour_overlay, disk(1))
+#             frame[contour_overlay == 1] = rgb_colors[channel]
+#         except:
+#             pass
 
-    imsave(f'SemanticSegmentationLesson/videos/processed/{os.path.basename(filename)}', frame)
+#     imsave(f'LessontTest/videos/processed/{os.path.basename(filename)}', frame)
