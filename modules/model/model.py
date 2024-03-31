@@ -79,7 +79,7 @@ def augmentate_images(image, masks):
 
 
 images = sorted(glob.glob('../../src/dataset/images/*.jpg'))
-masks = sorted(glob.glob('../../src/dataset/class_masks/*.png'))
+masks = sorted(glob.glob('../../src/dataset/class_masks2/*.png'))
 
 images_dataset = tf.data.Dataset.from_tensor_slices(images)
 masks_dataset = tf.data.Dataset.from_tensor_slices(masks)
@@ -253,52 +253,48 @@ unet_like.save_weights('src/networks/unet_like')
 
 """## Загружаем обученную модель"""
 
-# from google.colab import drive
-# drive.mount('/content/drive')
-
-unet_like.load_weights('src/networks/unet_like')
+# unet_like.load_weights('../../src/networks/unet_like')
 
 """## Проверим работу сети на всех кадрах из видео"""
 
-# rgb_colors = [
-#     (0,   0,   0),
-#     (255, 0,   0),
-#     (0,   255, 0),
-#     (0,   0,   255),
-#     (255, 165, 0),
-#     (255, 192, 203),
-#     (0,   255, 255),
-#     (255, 0,   255)
-# ]
+unet_like.load_weights('../../src/networks/unet_like')
+rgb_colors = [
+    (0,   0,   0), #black
+    (255, 255,   255), #white
+    (255,   0, 0), #red
+    (0,   255,   0), #green
+    (0, 0, 255), #blue
+]
 
-# frames = sorted(glob.glob('LessonTest/videos/original_video/*.jpg'))
+frames = sorted(glob.glob('../../src/dataset/images/*.jpg'))
 
-# for filename in frames:
-#     frame = imread(filename)
-#     sample = resize(frame, SAMPLE_SIZE)
+#тест
+for filename in frames:
+    frame = imread(filename)
+    sample = resize(frame, SAMPLE_SIZE)
 
-#     predict = unet_like.predict(sample.reshape((1,) +  SAMPLE_SIZE + (3,)))
-#     predict = predict.reshape(SAMPLE_SIZE + (CLASSES,))
+    predict = unet_like.predict(np.expand_dims(sample, axis=0))
+    predict = predict.reshape(SAMPLE_SIZE + (CLASSES,))
 
-#     scale = frame.shape[0] / SAMPLE_SIZE[0], frame.shape[1] / SAMPLE_SIZE[1]
+    scale = frame.shape[0] / SAMPLE_SIZE[0], frame.shape[1] / SAMPLE_SIZE[1]
 
-#     frame = (frame / 1.5).astype(np.uint8)
+    frame = (frame / 1.5).astype(np.uint8)
 
-#     for channel in range(1, CLASSES):
-#         contour_overlay = np.zeros((frame.shape[0], frame.shape[1]))
-#         contours = measure.find_contours(np.array(predict[:,:,channel]))
+    for channel in range(1, CLASSES):
+        contour_overlay = np.zeros((frame.shape[0], frame.shape[1]))
+        contours = measure.find_contours(np.array(predict[:,:,channel]))
 
-#         try:
-#             for contour in contours:
-#                 rr, cc = polygon_perimeter(contour[:, 0] * scale[0],
-#                                            contour[:, 1] * scale[1],
-#                                            shape=contour_overlay.shape)
+        try:
+            for contour in contours:
+                rr, cc = polygon_perimeter(contour[:, 0] * scale[0],
+                                           contour[:, 1] * scale[1],
+                                           shape=contour_overlay.shape)
 
-#                 contour_overlay[rr, cc] = 1
+                contour_overlay[rr, cc] = 1
 
-#             contour_overlay = dilation(contour_overlay, disk(1))
-#             frame[contour_overlay == 1] = rgb_colors[channel]
-#         except:
-#             pass
+            contour_overlay = dilation(contour_overlay, disk(1))
+            frame[contour_overlay == 1] = rgb_colors[channel]
+        except:
+            pass
 
-#     imsave(f'LessontTest/videos/processed/{os.path.basename(filename)}', frame)
+    imsave(f'LessonTest/dataset/test/{os.path.basename(filename)}', frame)
