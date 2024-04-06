@@ -11,6 +11,7 @@
 
 import os
 import glob
+import cv2
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
@@ -20,6 +21,7 @@ from skimage.io import imread, imsave
 from skimage.transform import resize
 from skimage.morphology import dilation, disk
 from skimage.draw import polygon_perimeter
+from skimage import exposure
 
 print(f'Tensorflow version {tf.__version__}')
 print(f'GPU is {"ON" if tf.config.list_physical_devices("GPU") else "OFF"}')
@@ -39,14 +41,14 @@ OUTPUT_SIZE = (1080, 1920)
 def load_images(image, mask):
     image = tf.io.read_file(image)
     image = tf.io.decode_jpeg(image)
-    # image = image[:, :, :3]
+    image = image[:, :, :3]
     image = tf.image.resize(image, OUTPUT_SIZE)
     image = tf.image.convert_image_dtype(image, tf.float32)
     image = image / 255.0
 
     mask = tf.io.read_file(mask)
     mask = tf.io.decode_png(mask)
-    # mask = mask[:, :, :3]
+    mask = mask[:, :, :3]
     # mask = tf.image.rgb_to_grayscale(mask)
     mask = tf.image.resize(mask, OUTPUT_SIZE)
     mask = tf.image.convert_image_dtype(mask, tf.float32)
@@ -115,8 +117,9 @@ plt.close()
 
 """## Разделим набор данных на обучающий и проверочный"""
 
-train_dataset = dataset.take(2000).cache()
-test_dataset = dataset.skip(2000).take(100).cache()
+train_dataset = dataset.take(7920).cache()
+print(len(dataset))
+test_dataset = dataset.skip(7920).take(300).cache()
 
 train_dataset = train_dataset.batch(8)
 test_dataset = test_dataset.batch(8)
@@ -237,64 +240,72 @@ def dice_mc_loss(a, b):
     return 1 - dice_mc_metric(a, b)
 
 
+def compose_with_alpha(image, mask):
+    alpha_channel = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)  # Convert to 3 channels
+    image_with_alpha = cv2.merge((image, image, image, alpha_channel))
+    return image_with_alpha
+
+
 def dice_bce_mc_loss(a, b):
     return 0.3 * dice_mc_loss(a, b) + tf.keras.losses.binary_crossentropy(a, b)
 
 
 """## Компилируем модель"""
 
-unet_like.compile(optimizer='adam', loss=[dice_bce_mc_loss], metrics=[dice_mc_metric])
+# unet_like.compile(optimizer='adam', loss=[dice_bce_mc_loss], metrics=[dice_mc_metric])
 
 """## Обучаем нейронную сеть и сохраняем результат"""
 
-history_dice = unet_like.fit(train_dataset, validation_data=test_dataset, epochs=25, initial_epoch=0)
+# history_dice = unet_like.fit(train_dataset, validation_data=test_dataset, epochs=1, initial_epoch=0)
 
-unet_like.save_weights('src/networks/unet_like')
+# unet_like.save_weights("../../src/networks/unet_like/test.weights.h5")
 
 """## Загружаем обученную модель"""
-
-# unet_like.load_weights('../../src/networks/unet_like')
+# модель
+unet_like.load_weights('../../src/networks/unet_like/test.weights.h5')
 
 """## Проверим работу сети на всех кадрах из видео"""
 
-unet_like.load_weights('../../src/networks/unet_like')
+# unet_like.load_weights('')
 rgb_colors = [
-    (0,   0,   0), #black
-    (255, 255,   255), #white
-    (255,   0, 0), #red
-    (0,   255,   0), #green
-    (0, 0, 255), #blue
+    (0, 0, 0),      # черный
+    (255, 255, 255),# белый
+    (255, 0, 0),    # красный
+    (0, 255, 0),    # зеленый
+    (0, 0, 255),    # синий
 ]
 
+# Получение списка файлов изображений
 frames = sorted(glob.glob('../../src/dataset/images/*.jpg'))
 
-#тест
+# Проход по каждому изображению и применение модели
 for filename in frames:
+    # Загрузка изображения
     frame = imread(filename)
+    # Изменение размера изображения до размера выборки
     sample = resize(frame, SAMPLE_SIZE)
 
+    # Получение предсказания модели для изображения
     predict = unet_like.predict(np.expand_dims(sample, axis=0))
     predict = predict.reshape(SAMPLE_SIZE + (CLASSES,))
 
+    # Масштабирование координат
     scale = frame.shape[0] / SAMPLE_SIZE[0], frame.shape[1] / SAMPLE_SIZE[1]
 
+    # Уменьшение яркости изображения
     frame = (frame / 1.5).astype(np.uint8)
 
+    # Создание нового изображения для наложения масок
+    overlay = np.zeros_like(frame)
+
+    # Проход по каждому классу
     for channel in range(1, CLASSES):
-        contour_overlay = np.zeros((frame.shape[0], frame.shape[1]))
-        contours = measure.find_contours(np.array(predict[:,:,channel]))
+        # Создание маски
+        mask = np.array(predict[:, :, channel])
+        mask = resize(mask, frame.shape[:2], anti_aliasing=True)
 
-        try:
-            for contour in contours:
-                rr, cc = polygon_perimeter(contour[:, 0] * scale[0],
-                                           contour[:, 1] * scale[1],
-                                           shape=contour_overlay.shape)
+        # Применение маски к overlay без прозрачности
+        overlay[mask > 0.3] = rgb_colors[channel]  # Попробуйте изменить порог бинаризации здесь
 
-                contour_overlay[rr, cc] = 1
-
-            contour_overlay = dilation(contour_overlay, disk(1))
-            frame[contour_overlay == 1] = rgb_colors[channel]
-        except:
-            pass
-
-    imsave(f'LessonTest/dataset/test/{os.path.basename(filename)}', frame)
+    # Сохранение результата
+    imsave(f'../../src/dataset/test/{os.path.basename(filename)}', overlay)
