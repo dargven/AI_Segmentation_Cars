@@ -52,25 +52,26 @@ def saved_images_to_download(images, count, filtered_images):
                 break
         else:
             continue
-    return filtered_images
 
 
-def search_images(count=10):
+def search_images(count=1000):
     filtered_images = []
-    search_term = "car side view"
-    url = (f"https://www.google.com/search?q={search_term}&source=lnms&tbm=isch&sa=X&ved"
-           f"=2ahUKEwie44_AnqHpAhUhBWMBHUFGD90Q_AUoAXoECBUQAw&biw=1920&bih=947")
-    driver.get(url)
+    search_terms = ['', ' BMW', ' Mercedes', ' Audi', ' Lada']
+    cnt = 0
+    for term in search_terms:
+        search_term = "car side view" + term
+        url = f"https://www.google.com/search?q={search_term}&udm=2&tbm=isch"
+        driver.get(url)
 
-    # wait.until(EC.visibility_of_element_located((By.CLASS_NAME, 'dimg')))
+        wait.until(EC.visibility_of_element_located((By.CLASS_NAME, 'rg_i')))
 
-    while len(filtered_images) < count:
-        time.sleep(2)
-        images = driver.find_elements(By.CLASS_NAME, 'rg_i')
-        print(len(images))
-        filtered_images = saved_images_to_download(images, count, filtered_images)
-        time.sleep(4)
-        scroll_page()
+        while (len(filtered_images)-(0 if cnt == 0 else (cnt * count/len(search_terms)))) < count/len(search_terms):
+            time.sleep(2)
+            images = driver.find_elements(By.CLASS_NAME, 'rg_i')
+            saved_images_to_download(images, count, filtered_images)
+            time.sleep(4)
+            scroll_page()
+        cnt += 1
     return filtered_images
 
 
@@ -88,7 +89,7 @@ def download_images(images_urls):
             head, data = url.split(',', 1)
             file_ext = '.' + head.split(';')[0].split('/')[1]
             plain_data = base64.b64decode(data)
-            save_path = f'src/images/image{save_images}{file_ext}'
+            save_path = f'../../src/parsImages/image{save_images}{file_ext}'
             with open(save_path, "wb") as file:
                 file.write(plain_data)
                 save_images += 1
