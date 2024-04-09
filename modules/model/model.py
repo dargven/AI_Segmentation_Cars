@@ -6,7 +6,7 @@
 #       os.remove(f'{path}/{img}')
 
 """## Подключаем необходимые модули"""
-
+import copy
 # !git clone https://github.com/lyftzeigen/SemanticSegmentationLesson.git
 
 import os
@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
+from PIL import Image
 
 from skimage import measure
 from skimage.io import imread, imsave
@@ -22,6 +23,8 @@ from skimage.transform import resize
 from skimage.morphology import dilation, disk
 from skimage.draw import polygon_perimeter
 from skimage import exposure
+
+from metrics import metrics
 
 print(f'Tensorflow version {tf.__version__}')
 print(f'GPU is {"ON" if tf.config.list_physical_devices("GPU") else "OFF"}')
@@ -81,10 +84,12 @@ def augmentate_images(image, masks):
 
 
 images = sorted(glob.glob('../../src/dataset/images/*.jpg'))
-masks = sorted(glob.glob('../../src/dataset/class_masks2/*.png'))
+class_masks = sorted(glob.glob('../../src/dataset/class_masks2/*.png'))  # Используем для обучения
+binary_masks = sorted(glob.glob('../../src/dataset/cuple_of_masks/*.png'))  # Используем для подсчета итоговой метрики
+true_masks = []
 
 images_dataset = tf.data.Dataset.from_tensor_slices(images)
-masks_dataset = tf.data.Dataset.from_tensor_slices(masks)
+masks_dataset = tf.data.Dataset.from_tensor_slices(class_masks)
 
 dataset = tf.data.Dataset.zip((images_dataset, masks_dataset))
 
@@ -118,7 +123,6 @@ plt.close()
 """## Разделим набор данных на обучающий и проверочный"""
 
 train_dataset = dataset.take(7920).cache()
-print(len(dataset))
 test_dataset = dataset.skip(7920).take(300).cache()
 
 train_dataset = train_dataset.batch(8)
@@ -240,12 +244,6 @@ def dice_mc_loss(a, b):
     return 1 - dice_mc_metric(a, b)
 
 
-def compose_with_alpha(image, mask):
-    alpha_channel = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)  # Convert to 3 channels
-    image_with_alpha = cv2.merge((image, image, image, alpha_channel))
-    return image_with_alpha
-
-
 def dice_bce_mc_loss(a, b):
     return 0.3 * dice_mc_loss(a, b) + tf.keras.losses.binary_crossentropy(a, b)
 
@@ -266,46 +264,101 @@ unet_like.load_weights('../../src/networks/unet_like/test.weights.h5')
 
 """## Проверим работу сети на всех кадрах из видео"""
 
-# unet_like.load_weights('')
 rgb_colors = [
-    (0, 0, 0),      # черный
-    (255, 255, 255), # белый
-    (255, 0, 0),    # красный
+    (0, 0, 0),  # черный
+    (255, 255, 255),  # белый
+    (255, 0, 0),  # красный
     (0, 0, 255),  # синий
-    (0, 255, 0),    # зеленый
+    (0, 255, 0),  # зеленый
 ]
 
 # Получение списка файлов изображений
-frames = sorted(glob.glob('../../src/dataset/images/*.jpg'))
+# frames = sorted(glob.glob('../../src/dataset/images/*.jpg'))
+frames = sorted(glob.glob('../../src/dataset/cuple_of_images/*.jpg'))
+predicted_masks = []
+
+mask_files = sorted(glob.glob('../../src/dataset/cuple_of_masks/*.png'))
+
+true_masks = []
+
+for mask_file in mask_files:
+    mask_image = Image.open(mask_file)
+
+    mask = np.array(mask_image)
+
+    true_masks.append(mask)
 
 # Проход по каждому изображению и применение модели
 for filename in frames:
-    # Загрузка изображения
-    frame = imread(filename)
-    # Изменение размера изображения до размера выборки
-    sample = resize(frame, SAMPLE_SIZE)
+    try:
+        # Загрузка изображения
+        frame = imread(filename)
+        # Изменение размера изображения до размера выборки
+        sample = resize(frame, SAMPLE_SIZE)
 
-    # Получение предсказания модели для изображения
-    predict = unet_like.predict(np.expand_dims(sample, axis=0))
-    predict = predict.reshape(SAMPLE_SIZE + (CLASSES,))
+        # Получение предсказания модели для изображения
+        predict = unet_like.predict(np.expand_dims(sample, axis=0))
+        predict = predict.reshape(SAMPLE_SIZE + (CLASSES,))
 
-    # Масштабирование координат
-    scale = frame.shape[0] / SAMPLE_SIZE[0], frame.shape[1] / SAMPLE_SIZE[1]
+        # Масштабирование координат
+        scale = frame.shape[0] / SAMPLE_SIZE[0], frame.shape[1] / SAMPLE_SIZE[1]
 
-    # Уменьшение яркости изображения
-    frame = (frame / 1.5).astype(np.uint8)
+        # Уменьшение яркости изображения
+        frame = (frame / 1.5).astype(np.uint8)
 
-    # Создание нового изображения для наложения масок
-    overlay = np.zeros_like(frame)
+        # Создание нового изображения для наложения масок
+        overlay = np.zeros_like(frame)
 
-    # Проход по каждому классу
-    for channel in range(1, CLASSES):
-        # Создание маски
-        mask = np.array(predict[:, :, channel])
-        mask = resize(mask, frame.shape[:2], anti_aliasing=True)
+        # Проход по каждому классу
+        for channel in range(1, CLASSES):
+            # Создание маски
+            mask = np.array(predict[:, :, channel])
+            mask = resize(mask, frame.shape[:2], anti_aliasing=True)
 
-        # Применение маски к overlay без прозрачности
-        overlay[mask > 0.3] = rgb_colors[channel]  # Попробуйте изменить порог бинаризации здесь
+            # Применение маски к overlay без прозрачности
+            overlay[mask > 0.3] = rgb_colors[channel]  # Попробуйте изменить порог бинаризации здесь
 
-    # Сохранение результата
-    imsave(f'../../src/dataset/test/{os.path.basename(filename)}', overlay)
+        # Сохранение результата
+        predicted_masks.append(copy.deepcopy(overlay))
+        imsave(f'../../src/dataset/test/{os.path.basename(filename)}', overlay)
+    except Exception as e:
+        continue
+max_height_predicted = max(overlay.shape[0] for overlay in predicted_masks)
+max_width_predicted = max(overlay.shape[1] for overlay in predicted_masks)
+###////////////###
+max_height_true = max(mask.shape[0] for mask in true_masks)
+max_width_true = max(mask.shape[1] for mask in true_masks)
+
+resized_masks = []
+for overlay in predicted_masks:
+    # Resize or pad each overlay image to match the maximum dimensions
+    resized_overlay = np.zeros((max_height_predicted, max_width_predicted, 3), dtype=np.uint8)
+    resized_overlay[:overlay.shape[0], :overlay.shape[1]] = overlay
+    resized_masks.append(resized_overlay)
+# Convert the list of resized overlay images to a single numpy array
+predicted_masks = np.stack(resized_masks)
+predicted_masks = np.squeeze(predicted_masks, axis=0)
+print(predicted_masks.shape)
+resized_true_masks = []
+for mask in true_masks:
+    # Resize or pad each true mask to match the maximum dimensions
+    resized_mask = np.zeros((max_height_true, max_width_true), dtype=np.uint8)
+    resized_mask[:mask.shape[0], :mask.shape[1]] = mask
+    resized_true_masks.append(resized_mask)
+
+# Convert the list of resized true masks to a single numpy array
+true_masks = np.stack(resized_true_masks)
+
+# Convert the list of resized true masks to a single numpy array
+true_masks = np.stack(resized_true_masks)
+
+# Подсчет метрик
+predicted_masks = np.stack(predicted_masks)
+print(predicted_masks)
+for mask_file in binary_masks:
+    mask_image = Image.open(mask_file)
+    mask = np.array(mask_image)
+    true_masks.append(mask)
+print(true_masks)
+true_masks = np.stack(true_masks)
+print(f"Итоговые метрики: {metrics(true_masks, predicted_masks)}")
