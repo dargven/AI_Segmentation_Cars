@@ -1,14 +1,4 @@
-# import os
-# path = '/content/LessonTest/dataset/masks'
-# imgs = os.listdir(path)
-# for img in imgs:
-#   if(img != ".ipynb_checkpoints"):
-#       os.remove(f'{path}/{img}')
-
-"""## Подключаем необходимые модули"""
 import copy
-# !git clone https://github.com/lyftzeigen/SemanticSegmentationLesson.git
-
 import os
 import glob
 import cv2
@@ -23,8 +13,6 @@ from skimage.transform import resize
 from skimage.morphology import dilation, disk
 from skimage.draw import polygon_perimeter
 from skimage import exposure
-
-from metrics import metrics
 
 print(f'Tensorflow version {tf.__version__}')
 print(f'GPU is {"ON" if tf.config.list_physical_devices("GPU") else "OFF"}')
@@ -250,13 +238,13 @@ def dice_bce_mc_loss(a, b):
 
 """## Компилируем модель"""
 
-# unet_like.compile(optimizer='adam', loss=[dice_bce_mc_loss], metrics=[dice_mc_metric])
+unet_like.compile(optimizer='adam', loss=[dice_bce_mc_loss], metrics=[dice_mc_metric])
 
 """## Обучаем нейронную сеть и сохраняем результат"""
 
-# history_dice = unet_like.fit(train_dataset, validation_data=test_dataset, epochs=1, initial_epoch=0)
+history_dice = unet_like.fit(train_dataset, validation_data=test_dataset, epochs=1, initial_epoch=0)
 
-# unet_like.save_weights("../../src/networks/unet_like/test.weights.h5")
+unet_like.save_weights("../../src/networks/unet_like/test.weights.h5")
 
 """## Загружаем обученную модель"""
 # модель
@@ -272,12 +260,11 @@ rgb_colors = [
     (0, 255, 0),  # зеленый
 ]
 
-# Получение списка файлов изображений
 # frames = sorted(glob.glob('../../src/dataset/images/*.jpg'))
-frames = sorted(glob.glob('../../src/dataset/cuple_of_images/*.jpg'))
+frames = sorted(glob.glob('../../src/dataset/images/*.jpg'))
 predicted_masks = []
 
-mask_files = sorted(glob.glob('../../src/dataset/cuple_of_masks/*.png'))
+mask_files = sorted(glob.glob('../../src/dataset/masks/*.png'))
 
 true_masks = []
 
@@ -291,12 +278,9 @@ for mask_file in mask_files:
 # Проход по каждому изображению и применение модели
 for filename in frames:
     try:
-        # Загрузка изображения
         frame = imread(filename)
-        # Изменение размера изображения до размера выборки
         sample = resize(frame, SAMPLE_SIZE)
 
-        # Получение предсказания модели для изображения
         predict = unet_like.predict(np.expand_dims(sample, axis=0))
         predict = predict.reshape(SAMPLE_SIZE + (CLASSES,))
 
@@ -309,56 +293,46 @@ for filename in frames:
         # Создание нового изображения для наложения масок
         overlay = np.zeros_like(frame)
 
-        # Проход по каждому классу
         for channel in range(1, CLASSES):
-            # Создание маски
             mask = np.array(predict[:, :, channel])
             mask = resize(mask, frame.shape[:2], anti_aliasing=True)
 
             # Применение маски к overlay без прозрачности
-            overlay[mask > 0.3] = rgb_colors[channel]  # Попробуйте изменить порог бинаризации здесь
+            overlay[mask > 0.3] = rgb_colors[channel]
 
-        # Сохранение результата
         predicted_masks.append(copy.deepcopy(overlay))
         imsave(f'../../src/dataset/test/{os.path.basename(filename)}', overlay)
     except Exception as e:
         continue
-max_height_predicted = max(overlay.shape[0] for overlay in predicted_masks)
-max_width_predicted = max(overlay.shape[1] for overlay in predicted_masks)
-###////////////###
-max_height_true = max(mask.shape[0] for mask in true_masks)
-max_width_true = max(mask.shape[1] for mask in true_masks)
-
-resized_masks = []
-for overlay in predicted_masks:
-    # Resize or pad each overlay image to match the maximum dimensions
-    resized_overlay = np.zeros((max_height_predicted, max_width_predicted, 3), dtype=np.uint8)
-    resized_overlay[:overlay.shape[0], :overlay.shape[1]] = overlay
-    resized_masks.append(resized_overlay)
-# Convert the list of resized overlay images to a single numpy array
-predicted_masks = np.stack(resized_masks)
-predicted_masks = np.squeeze(predicted_masks, axis=0)
-print(predicted_masks.shape)
-resized_true_masks = []
-for mask in true_masks:
-    # Resize or pad each true mask to match the maximum dimensions
-    resized_mask = np.zeros((max_height_true, max_width_true), dtype=np.uint8)
-    resized_mask[:mask.shape[0], :mask.shape[1]] = mask
-    resized_true_masks.append(resized_mask)
-
-# Convert the list of resized true masks to a single numpy array
-true_masks = np.stack(resized_true_masks)
-
-# Convert the list of resized true masks to a single numpy array
-true_masks = np.stack(resized_true_masks)
-
-# Подсчет метрик
-predicted_masks = np.stack(predicted_masks)
-print(predicted_masks)
-for mask_file in binary_masks:
-    mask_image = Image.open(mask_file)
-    mask = np.array(mask_image)
-    true_masks.append(mask)
-print(true_masks)
-true_masks = np.stack(true_masks)
-print(f"Итоговые метрики: {metrics(true_masks, predicted_masks)}")
+        ###### ПОПЫТКА МЕТРИК
+# max_height_predicted = max(overlay.shape[0] for overlay in predicted_masks)
+# max_width_predicted = max(overlay.shape[1] for overlay in predicted_masks)
+# ###////////////###
+# max_height_true = max(mask.shape[0] for mask in true_masks)
+# max_width_true = max(mask.shape[1] for mask in true_masks)
+#
+# resized_masks = []
+# for overlay in predicted_masks:
+#     resized_overlay = np.zeros((max_height_predicted, max_width_predicted, 3), dtype=np.uint8)
+#     resized_overlay[:overlay.shape[0], :overlay.shape[1]] = overlay
+#     resized_masks.append(resized_overlay)
+# predicted_masks = np.stack(resized_masks)
+# predicted_masks = np.squeeze(predicted_masks, axis=0)
+# print(predicted_masks.shape)
+# resized_true_masks = []
+# for mask in true_masks:
+#     resized_mask = np.zeros((max_height_true, max_width_true), dtype=np.uint8)
+#     resized_mask[:mask.shape[0], :mask.shape[1]] = mask
+#     resized_true_masks.append(resized_mask)
+#
+# true_masks = np.stack(resized_true_masks)
+#
+# true_masks = np.stack(resized_true_masks)
+#
+# predicted_masks = np.stack(predicted_masks)
+# for mask_file in binary_masks:
+#     mask_image = Image.open(mask_file)
+#     mask = np.array(mask_image)
+#     true_masks.append(mask)
+# true_masks = np.stack(true_masks)
+# print(f"Итоговые метрики: {metrics(true_masks, predicted_masks)}")
