@@ -14,28 +14,33 @@ from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 driver = webdriver.Chrome()
+wait = WebDriverWait(driver, 2)
 
 
-# def agree_with_google():
+def agree_with_google():
+    ## Применяется, когда вылазит надоедливое окошко(при использовании хром). Т.к окошко вылазит
+    ## с определенной переодичностью и не встречается на Windows, реализация функционала
+    ## оставлено на комментировании в случаях, когда окошко перестает вылазить.
 
-#     ## Применяется, когда вылазит надоедливое окошко(при использовании хром). Т.к окошко вылазит
-#     ## с определенной переодичностью и не встречается на Windows, реализация функционала
-#     ## оставлено на комментировании в случаях, когда окошко перестает вылазить.
-#
-#     driver.get('https://google.com/xhtml')
-#     time.sleep(2)  # seconds until popup appears
-#     try:  # 2 different popups
-#         frame = driver.find_element(By.XPATH, '//*[@id="cnsw"]/iframe')  # <-locating chrome cookies consent frame
-#         if frame is not None:
-#             driver.switch_to.frame(frame)
-#             button = driver.find_element(By.XPATH, '//*[@id="introAgreeButton"]')
-#             if button:
-#                 button.click()
-#     except NoSuchElementException:
-#         button = driver.find_element(By.XPATH, '//*[@id="L2AGLb"]')
-#         if button:
-#             button.click()
-# agree_with_google()
+    driver.get('https://google.com/xhtml')
+    time.sleep(2)
+    try:
+        try:
+            frame = driver.find_element(By.XPATH, '//*[@id="cnsw"]/iframe')  # <-locating chrome cookies consent frame
+            if frame is not None:
+                driver.switch_to.frame(frame)
+                button = driver.find_element(By.XPATH, '//*[@id="introAgreeButton"]')
+                if button:
+                    button.click()
+        except NoSuchElementException:
+            button = driver.find_element(By.XPATH, '//*[@id="L2AGLb"]')
+            if button:
+                button.click()
+    except:
+        None
+
+
+agree_with_google()
 
 
 def saved_images_to_download(images, count, filtered_images):
@@ -47,27 +52,33 @@ def saved_images_to_download(images, count, filtered_images):
                 break
         else:
             continue
+    return filtered_images
 
 
-def search_images(count=1000):
+def search_images(count=10):
     filtered_images = []
     search_term = "car side view"
     url = (f"https://www.google.com/search?q={search_term}&source=lnms&tbm=isch&sa=X&ved"
            f"=2ahUKEwie44_AnqHpAhUhBWMBHUFGD90Q_AUoAXoECBUQAw&biw=1920&bih=947")
     driver.get(url)
-    wait = WebDriverWait(driver, 1)
-    wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'rg_i')))
+
+    # wait.until(EC.visibility_of_element_located((By.CLASS_NAME, 'dimg')))
+
     while len(filtered_images) < count:
         time.sleep(2)
         images = driver.find_elements(By.CLASS_NAME, 'rg_i')
-        saved_images_to_download(images, count, filtered_images)
+        print(len(images))
+        filtered_images = saved_images_to_download(images, count, filtered_images)
         time.sleep(4)
         scroll_page()
     return filtered_images
 
 
 def scroll_page():
-    driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.END)
+    try:
+        driver.find_element(By.CLASS_NAME, 'LZ4I').click()  # кнопка "Ещё результаты"
+    except:
+        driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.END)  # прокрутка вниз
 
 
 def download_images(images_urls):
